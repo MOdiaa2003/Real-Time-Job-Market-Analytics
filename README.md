@@ -33,10 +33,10 @@ This pipeline simulates a live job marketplace that continuously:
                     │                         │                     │
                     └─────────────┬───────────┘                     │
                                   ▼                                 │
-                    ┌──────────────────────────┐                    │
-                    │  Apache Spark Streaming  │                    │
-                    │ (real_time_job_          │                    │
-                    │  applications.py)        │ ───────────────────┘
+                    ┌──────────────────────────┐                   │
+                    │  Apache Spark Streaming  │                   │
+                    │ (real_time_job_          │                   │
+                    │  applications.py)        │───────────────────┘
                     └──────────────────────────┘
                                   │
                                   ▼
@@ -86,6 +86,16 @@ TOPIC_JOBS=job_posts
 TOPIC_APPLICATIONS=job_applications
 ```
 
+**Note for Docker deployments:** When running scripts inside containers, Kafka should be accessible at `kafka_job:29092` (internal network). Update your scripts' Kafka connection accordingly:
+
+```python
+# For services running inside Docker network
+KAFKA_BOOTSTRAP_SERVERS = "kafka_job:29092"
+
+# For services running on host machine (Windows/Mac/Linux)
+KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
+```
+
 ### 2. Infrastructure Deployment
 
 #### Option A: Docker Compose (Recommended)
@@ -112,17 +122,48 @@ Ensure PostgreSQL, Kafka, and Spark are running and accessible at the configured
 Execute the three scripts in the following order (in separate terminals):
 
 #### Terminal 1: Data Generation & Streaming
+
+**Run on host machine (not in container):**
+
 ```bash
 python generate_job_and_candidate_data.py
 ```
 **Purpose**: Generates 1,000 synthetic records and publishes them to Kafka topics.
 
+**Important:** This script should connect to `localhost:9092` for Kafka and `localhost:5432` for PostgreSQL.
+
 #### Terminal 2: Real-Time Matching Engine
+
+**If using Docker deployment:**
+
+```bash
+# Step 1: Copy required files to Spark master container
+docker cp data_used.py spark-master1:/opt/bitnami/spark/
+docker cp real_time_job_applications.py spark-master1:/opt/bitnami/spark/
+
+# Step 2: Submit Spark job
+docker exec -it spark-master1 spark-submit \
+  --master spark://spark-master:7077 \
+  --deploy-mode client \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.postgresql:postgresql:42.7.5,org.apache.spark:spark-avro_2.12:3.5.3 \
+  --executor-memory 2g \
+  --executor-cores 2 \
+  --driver-memory 2g \
+  --conf spark.sql.adaptive.enabled=false \
+  --conf spark.streaming.stopGracefullyOnShutdown=true \
+  /opt/bitnami/spark/real_time_job_applications.py
+```
+
+**If running locally (without Docker):**
+
 ```bash
 spark-submit \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0 \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.postgresql:postgresql:42.7.5 \
+  --executor-memory 2g \
+  --executor-cores 2 \
   real_time_job_applications.py
 ```
+
 **Purpose**: Consumes candidate and job data, performs intelligent matching, and produces application events.
 
 #### Terminal 3: Analytics Dashboard
@@ -283,15 +324,42 @@ kafka-topics.sh --create --topic job_applications --bootstrap-server localhost:9
 
 ### Spark Configuration
 
-Adjust memory and cores in `real_time_job_applications.py` or via submit parameters:
+**Docker Deployment Configuration:**
+
+The Spark job submission includes the following key parameters:
 
 ```bash
-spark-submit \
-  --master local[*] \
-  --driver-memory 4g \
+docker exec -it spark-master1 spark-submit \
+  --master spark://spark-master:7077          # Spark cluster master URL
+  --deploy-mode client                         # Run driver in client process
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.postgresql:postgresql:42.7.5,org.apache.spark:spark-avro_2.12:3.5.3
+  --executor-memory 2g                         # Memory per executor
+  --executor-cores 2                           # CPU cores per executor
+  --driver-memory 2g                           # Driver process memory
+  --conf spark.sql.adaptive.enabled=false      # Disable AQE for streaming
+  --conf spark.streaming.stopGracefullyOnShutdown=true  # Graceful shutdown
+  /opt/bitnami/spark/real_time_job_applications.py
+```
+
+**Required Dependencies:**
+- `spark-sql-kafka-0-10_2.12:3.5.3` - Kafka integration for structured streaming
+- `postgresql:42.7.5` - PostgreSQL JDBC driver
+- `spark-avro_2.12:3.5.3` - Avro serialization support
+
+**Adjust for production workloads:**
+
+```bash
+# High-volume configuration
+docker exec -it spark-master1 spark-submit \
+  --master spark://spark-master:7077 \
+  --deploy-mode client \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.postgresql:postgresql:42.7.5 \
   --executor-memory 4g \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0 \
-  real_time_job_applications.py
+  --executor-cores 4 \
+  --driver-memory 4g \
+  --num-executors 3 \
+  --conf spark.sql.shuffle.partitions=200 \
+  /opt/bitnami/spark/real_time_job_applications.py
 ```
 
 ### PostgreSQL Optimization
@@ -325,22 +393,72 @@ Tested on: Intel i7-10700K, 16GB RAM, SSD
 # Check Kafka is running
 docker ps | grep kafka
 
-# Verify broker accessibility
+# Verify broker accessibility from host
 kafka-broker-api-versions.sh --bootstrap-server localhost:9092
+
+# Test from within Docker network
+docker exec -it kafka_job kafka-broker-api-versions.sh --bootstrap-server kafka_job:29092
 ```
 
-**2. Spark Streaming Lag**
-- Increase Spark executor memory
+**2. Spark Job Failing to Connect to Kafka**
+
+If you see `Connection refused` errors in Spark logs:
+
+```bash
+# Ensure Spark containers can reach Kafka
+docker exec -it spark-master1 ping kafka_job
+
+# Update Kafka bootstrap servers in real_time_job_applications.py to use internal address
+# Change: localhost:9092 → kafka_job:29092
+```
+
+**3. File Not Found in Spark Container**
+
+If `data_used.py` is not found:
+
+```bash
+# Verify files are copied to container
+docker exec -it spark-master1 ls -la /opt/bitnami/spark/
+
+# Re-copy if needed
+docker cp data_used.py spark-master1:/opt/bitnami/spark/
+docker cp real_time_job_applications.py spark-master1:/opt/bitnami/spark/
+```
+
+**4. Spark Streaming Lag**
+- Increase Spark executor memory: `--executor-memory 4g`
 - Scale up Kafka partitions
 - Adjust trigger interval in streaming query
+- Monitor Spark UI at `http://localhost:8080`
 
-**3. PostgreSQL Connection Timeout**
+**5. PostgreSQL Connection Timeout**
 - Verify credentials in `.env`
 - Check PostgreSQL is accepting connections: `psql -h localhost -U your_username -d job_market_db`
+- Ensure PostgreSQL container is running: `docker ps | grep postgres`
 
-**4. Dashboard Not Updating**
-- Ensure Kafka topics have data: `kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic job_applications --from-beginning`
+**6. Dashboard Not Updating**
+- Ensure Kafka topics have data:
+  ```bash
+  docker exec -it kafka_job kafka-console-consumer.sh \
+    --bootstrap-server localhost:9092 \
+    --topic job_applications \
+    --from-beginning \
+    --max-messages 5
+  ```
 - Check Streamlit logs for connection errors
+- Verify dashboard is connecting to correct Kafka address (`localhost:9092` from host)
+
+**7. Package Download Failures in Spark Submit**
+
+If Maven packages fail to download:
+
+```bash
+# Pre-download packages
+docker exec -it spark-master1 bash
+spark-shell --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.postgresql:postgresql:42.7.5
+
+# Or download JARs manually and use --jars instead of --packages
+```
 
 ## 🔒 Security Considerations
 
