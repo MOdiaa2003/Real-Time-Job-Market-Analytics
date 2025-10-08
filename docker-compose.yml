@@ -1,0 +1,229 @@
+
+# version: "3.9"
+
+# services:
+#   postgres:
+#     image: postgres:14
+#     container_name: my_postgres
+#     environment:
+#       POSTGRES_USER: ${POSTGRES_USER}
+#       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+#       POSTGRES_DB: ${POSTGRES_DB}
+#     ports:
+#       - "5432:5432"
+#     volumes:
+#       - pgdata:/var/lib/postgresql/data
+#     networks:
+#       - spark-network
+
+#   zookeeper:
+#     image: confluentinc/cp-zookeeper:7.4.0
+#     container_name: zookeeper_job
+#     ports:
+#       - "${ZOOKEEPER_CLIENT_PORT}:${ZOOKEEPER_CLIENT_PORT}"
+#     environment:
+#       ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT}
+#       ZOOKEEPER_TICK_TIME: ${ZOOKEEPER_TICK_TIME}
+#     networks:
+#       - spark-network
+
+#   kafka:
+#     image: confluentinc/cp-kafka:7.4.0
+#     container_name: kafka_job
+#     ports:
+#       - "9092:9092"   # external access (Windows host)
+#       - "29092:29092" # internal access (Spark containers)
+#     environment:
+#       KAFKA_BROKER_ID: 1
+#       KAFKA_ZOOKEEPER_CONNECT: zookeeper_job:2181
+#       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
+#       KAFKA_ADVERTISED_LISTENERS: INSIDE://kafka_job:29092,OUTSIDE://localhost:9092
+#       KAFKA_LISTENERS: INSIDE://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+#       KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
+#       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#       KAFKA_DELETE_TOPIC_ENABLE: "true"
+#       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+#     depends_on:
+#       - zookeeper
+#     networks:
+#       - spark-network
+
+#   spark-master:
+#     image: bitnami/spark:latest
+#     container_name: spark-master1
+#     environment:
+#       - SPARK_MODE=master
+#       - SPARK_RPC_AUTHENTICATION_ENABLED=no
+#       - SPARK_RPC_ENCRYPTION_ENABLED=no
+#       - SPARK_LOCAL_DIRS=/tmp
+#       - SPARK_MASTER_HOST=spark-master
+#       - SPARK_MASTER_PORT=7077
+#       - SPARK_MASTER_WEBUI_PORT=8080
+#     ports:
+#       - "8080:8080"   # Spark Master UI
+#       - "7077:7077"   # Spark Master port
+#     networks:
+#       - spark-network
+
+#   spark-worker:
+#     image: bitnami/spark:latest
+#     container_name: spark-worker1
+#     environment:
+#       - SPARK_MODE=worker
+#       - SPARK_MASTER_URL=spark://spark-master:7077
+#       - SPARK_WORKER_MEMORY=2G
+#       - SPARK_WORKER_CORES=2
+#     depends_on:
+#       - spark-master
+#     ports:
+#       - "8081:8081"   # Spark Worker UI
+#     networks:
+#       - spark-network
+
+# networks:
+#   spark-network:
+#     driver: bridge
+
+# volumes:
+#   pgdata:
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:14
+    container_name: my_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - spark-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper_job
+    ports:
+      - "${ZOOKEEPER_CLIENT_PORT}:${ZOOKEEPER_CLIENT_PORT}"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT}
+      ZOOKEEPER_TICK_TIME: ${ZOOKEEPER_TICK_TIME}
+    networks:
+      - spark-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka_job
+    ports:
+      - "9092:9092"   # external access (Windows host)
+      - "29092:29092" # internal access (Spark containers)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper_job:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: INSIDE://kafka_job:29092,OUTSIDE://localhost:9092
+      KAFKA_LISTENERS: INSIDE://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    depends_on:
+      - zookeeper
+    networks:
+      - spark-network
+
+  # ✅ Elasticsearch (real-time data store)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.1
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"   # REST API
+    networks:
+      - spark-network
+
+  # ✅ Kibana (UI for Elasticsearch)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.1
+    container_name: kibana
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"   # Kibana Web UI
+    networks:
+      - spark-network
+
+  # ✅ Kafka Connect (bridge Kafka → Elasticsearch)
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.4.0
+    container_name: kafka_connect
+    depends_on:
+      - kafka
+      - elasticsearch
+    ports:
+      - "8083:8083"  # REST API for connectors
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka_job:29092
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-status
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: false
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      CONNECT_LOG4J_LOGGERS: org.reflections=ERROR
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
+      CONNECT_ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    networks:
+      - spark-network
+
+  spark-master:
+    image: bitnami/spark:latest
+    container_name: spark-master1
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_DIRS=/tmp
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    networks:
+      - spark-network
+
+  spark-worker:
+    image: bitnami/spark:latest
+    container_name: spark-worker1
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+    depends_on:
+      - spark-master
+    ports:
+      - "8081:8081"
+    networks:
+      - spark-network
+
+networks:
+  spark-network:
+    driver: bridge
+
+volumes:
+  pgdata:
