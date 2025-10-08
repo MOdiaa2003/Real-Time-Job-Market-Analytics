@@ -11,7 +11,10 @@ This pipeline simulates a live job marketplace that continuously:
 - Persists data in PostgreSQL for durability
 - Visualizes real-time analytics through an interactive dashboard
 
+
 ## 🏗️ Architecture
+
+![Realtime Architecture](ARCH.png)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
