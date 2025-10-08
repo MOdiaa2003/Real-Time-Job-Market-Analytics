@@ -33,10 +33,10 @@ This pipeline simulates a live job marketplace that continuously:
                     │                         │                     │
                     └─────────────┬───────────┘                     │
                                   ▼                                 │
-                    ┌──────────────────────────┐                   │
-                    │  Apache Spark Streaming  │                   │
-                    │ (real_time_job_          │                   │
-                    │  applications.py)        │───────────────────┘
+                    ┌──────────────────────────┐                    │
+                    │  Apache Spark Streaming  │                    │
+                    │ (real_time_job_          │                    │
+                    │  applications.py)        │ ───────────────────┘
                     └──────────────────────────┘
                                   │
                                   ▼
@@ -373,16 +373,7 @@ CREATE INDEX idx_candidate_skills ON candidate_info USING GIN(skills);
 CREATE INDEX idx_posted_date ON job_posts(posted_date);
 ```
 
-## 📊 Performance Benchmarks
 
-Tested on: Intel i7-10700K, 16GB RAM, SSD
-
-| Metric | Value |
-|--------|-------|
-| Data generation throughput | ~150 records/sec |
-| Spark streaming latency | < 2 seconds (end-to-end) |
-| Dashboard refresh time | ~1.5 seconds (5000 records) |
-| PostgreSQL write throughput | ~200 inserts/sec |
 
 ## 🐛 Troubleshooting
 
@@ -460,14 +451,7 @@ spark-shell --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.post
 # Or download JARs manually and use --jars instead of --packages
 ```
 
-## 🔒 Security Considerations
 
-**Production Recommendations:**
-- Enable Kafka SASL/SSL authentication
-- Use PostgreSQL SSL connections
-- Implement role-based access control (RBAC)
-- Sanitize user inputs in dashboard filters
-- Store credentials in secret management systems (e.g., AWS Secrets Manager, HashiCorp Vault)
 
 ## 📈 Scaling Strategy
 
@@ -514,11 +498,7 @@ Contributions are welcome! Please follow these guidelines:
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 👥 Authors
 
-**Data Engineering Team**
-- Pipeline Architecture & Implementation
-- Real-time Analytics Design
 
 ## 📧 Contact
 
