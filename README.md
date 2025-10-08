@@ -33,10 +33,10 @@ This pipeline simulates a live job marketplace that continuously:
                     │                         │                     │
                     └─────────────┬───────────┘                     │
                                   ▼                                 │
-                    ┌──────────────────────────┐                   │
-                    │  Apache Spark Streaming  │                   │
-                    │ (real_time_job_          │                   │
-                    │  applications.py)        │───────────────────┘
+                    ┌──────────────────────────┐                    │
+                    │  Apache Spark Streaming  │                    │
+                    │ (real_time_job_          │                    │
+                    │  applications.py)        │ ───────────────────┘
                     └──────────────────────────┘
                                   │
                                   ▼
