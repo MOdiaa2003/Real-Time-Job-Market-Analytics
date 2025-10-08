@@ -494,6 +494,63 @@ Contributions are welcome! Please follow these guidelines:
 4. Push to branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+
+🧩  Problem
+
+You have a script on your Windows host (VS Code) that connects to:
+
+Spark container (to run jobs)
+
+Kafka container (to read/write data)
+
+When you run the script:
+
+From your host, localhost:9092 (Kafka address) works fine ✅ because your host can reach Kafka through the mapped port.
+
+But when Spark executes the job inside its container, localhost now means the Spark container itself, not your host ❌.
+So Spark cannot find Kafka at localhost:9092, and it fails.
+
+💡 Why this happens
+
+Each container has its own network namespace — meaning:
+
+localhost inside a container points to that same container, not your computer or another container.
+
+So when containers need to talk to each other, they must use Docker’s internal network names, not localhost.
+
+✅ The Solution
+
+Use the Docker service name (from your docker-compose.yml) to connect between containers, like this:
+
+# When Spark (inside container) connects to Kafka:
+kafka_broker = "kafka:9092"   # Use container name, not localhost
+
+
+And when you run the same script from your host, use:
+
+kafka_broker = "localhost:9092"  # Host talks through exposed port
+
+⚙️ How to handle both cases automatically
+
+You can detect where the script is running and choose the correct address:
+
+import os
+
+if os.getenv("RUNNING_IN_DOCKER"):
+    kafka_broker = "kafka:9092"   # Container-to-container
+else:
+    kafka_broker = "localhost:9092"  # Host-to-container
+
+
+Then in your Dockerfile or docker-compose.yml, set:
+
+environment:
+  - RUNNING_IN_DOCKER=true
+
+🧠 In short
+Situation	Kafka Address	Why
+Script runs on your host	localhost:9092	Kafka port exposed to host
+Script runs inside Spark container	kafka:9092	Use internal Docker network
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
